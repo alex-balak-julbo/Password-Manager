@@ -1,0 +1,8 @@
+# Deny direct web access to secrets, source and the database.
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+RedirectMatch 403 ^/(.*/)?(src|storage)(/|$)
+<FilesMatch "\.(sqlite|sqlite3|db)$">
+    Require all denied
+</FilesMatch>
