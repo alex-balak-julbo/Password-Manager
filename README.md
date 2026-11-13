@@ -29,7 +29,7 @@ http://localhost/password-manager/.env : you should get 403.
   Opening `storage/vault.sqlite` shows only ciphertext.
 - The master password is stored only as a bcrypt/Argon hash (`password_hash`).
 - Login is limited to 5 wrong attempts, then a 5 minute lockout.
-- The session auto-locks after 15 minutes idle. Forms are CSRF-protected.
+- The session auto-locks after `IDLE_TIMEOUT` seconds idle (default 60, set in `.env`). Press Ctrl+L to lock instantly. Forms are CSRF-protected.
 - Passwords are never in the page HTML; they are fetched only when you click
   Copy, Show or Edit. Copied passwords are cleared from the clipboard after 30 s.
 
@@ -42,4 +42,4 @@ Store the backup somewhere other than where the app runs.
 - If someone has both `.env` and the database file, they can decrypt everything
   (they still don't need your master password). For stronger protection, move
   `.env` out of the project or derive the key from the master password.
-- Keyboard: `/` focuses the search box.
+- Keyboard: `/` focuses the search box, `Ctrl+L` locks the vault.

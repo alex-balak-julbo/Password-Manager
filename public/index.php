@@ -119,6 +119,12 @@ if ($isPost) {
         redirect();
     }
 
+    // Keep-alive from the browser while the user is active (session timestamp is refreshed in bootstrap)
+    if ($action === 'ping') {
+        http_response_code(204);
+        exit;
+    }
+
     // JSON: fetch one decrypted entry (used by copy / show / edit)
     if ($action === 'get') {
         header('Content-Type: application/json');
@@ -191,6 +197,9 @@ foreach (db()->query('SELECT id, name, url, username FROM entries')->fetchAll() 
 }
 usort($items, fn ($a, $b) => strcasecmp($a['name'], $b['name']));
 
+$idle      = idle_timeout();
+$idleLabel = $idle % 60 === 0 ? ($idle / 60) . ' min' : $idle . ' s';
+
 $flash = $_SESSION['flash'] ?? null;
 unset($_SESSION['flash']);
 ?>
@@ -205,10 +214,10 @@ unset($_SESSION['flash']);
 
   <header class="flex items-center justify-between">
     <h1 class="text-2xl font-bold tracking-tight">Vault</h1>
-    <form method="post">
+    <form method="post" id="logoutForm">
       <input type="hidden" name="csrf" value="<?= h(csrf()) ?>">
       <input type="hidden" name="action" value="logout">
-      <button class="text-sm font-medium text-slate2 hover:text-ink rounded px-3 py-1.5 border border-line bg-white focus:outline-none focus:ring-2 focus:ring-pine">Lock</button>
+      <button title="Lock (Ctrl+L)" class="text-sm font-medium text-slate2 hover:text-ink rounded px-3 py-1.5 border border-line bg-white focus:outline-none focus:ring-2 focus:ring-pine">Lock</button>
     </form>
   </header>
 
@@ -266,7 +275,7 @@ unset($_SESSION['flash']);
   <?php endif; ?>
 
   <p class="mt-6 text-xs text-slate2 text-center">
-    <?= count($items) ?> <?= count($items) === 1 ? 'entry' : 'entries' ?> · auto-locks after 15 minutes idle
+    <?= count($items) ?> <?= count($items) === 1 ? 'entry' : 'entries' ?> · auto-locks after <?= h($idleLabel) ?> idle · Ctrl+L to lock now
   </p>
 </div>
 
@@ -466,11 +475,32 @@ $('#pwGen').addEventListener('click', () => {
   $('#pwToggle').textContent = 'Hide';
 });
 
-// ---- reload when idle so the server can lock the session ---------------
-let idle;
-const resetIdle = () => { clearTimeout(idle); idle = setTimeout(() => location.reload(), <?= IDLE_TIMEOUT * 1000 + 2000 ?>); };
-['click', 'keydown', 'mousemove', 'touchstart'].forEach(ev => document.addEventListener(ev, resetIdle, { passive: true }));
-resetIdle();
+// ---- lock: Ctrl+L and idle timeout ---------------------------------------
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'l') {
+    e.preventDefault();
+    $('#logoutForm').submit();
+  }
+});
+
+const IDLE_MS = <?= $idle * 1000 ?>;
+let idleTimer, lastPing = Date.now();
+function activity() {
+  clearTimeout(idleTimer);
+  // reload slightly after the server-side limit so the server shows the unlock screen
+  idleTimer = setTimeout(() => location.reload(), IDLE_MS + 1500);
+  if (Date.now() - lastPing > 5000) {          // tell the server we're still here
+    lastPing = Date.now();
+    fetch('?action=ping', {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': CSRF, 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ action: 'ping' }),
+    }).then(r => { if (!r.ok) location.reload(); }).catch(() => {});
+  }
+}
+['click', 'keydown', 'mousemove', 'touchstart'].forEach(ev =>
+  document.addEventListener(ev, activity, { passive: true }));
+activity();
 </script>
 </body>
 </html>

@@ -115,7 +115,12 @@ function meta_set(string $key, string $value): void
 }
 
 // ------------------------------------------------------------- session
-const IDLE_TIMEOUT = 900; // auto-lock after 15 minutes of inactivity
+/** Seconds of inactivity before auto-lock. Set IDLE_TIMEOUT in .env (default 60, minimum 10). */
+function idle_timeout(): int
+{
+    $v = env('IDLE_TIMEOUT');
+    return ($v !== null && ctype_digit($v)) ? max(10, (int) $v) : 60;
+}
 
 function logout(): void
 {
@@ -146,7 +151,7 @@ session_set_cookie_params([
 session_start();
 
 if (is_authed()) {
-    if (time() - (int) ($_SESSION['last'] ?? 0) > IDLE_TIMEOUT) {
+    if (time() - (int) ($_SESSION['last'] ?? 0) > idle_timeout()) {
         logout();
     } else {
         $_SESSION['last'] = time();
