@@ -12,6 +12,7 @@ set_exception_handler(function (Throwable $e): void {
 
 $error     = null;
 $hasMaster = meta_get('master_hash') !== null;
+$authType  = meta_get('master_type') ?? 'password';
 $action    = (string) ($_POST['action'] ?? $_GET['action'] ?? '');
 $isPost    = $_SERVER['REQUEST_METHOD'] === 'POST';
 
@@ -20,14 +21,21 @@ $isPost    = $_SERVER['REQUEST_METHOD'] === 'POST';
 // ======================================================================
 if ($isPost && $action === 'setup' && !$hasMaster) {
     check_csrf();
-    $pw  = (string) ($_POST['password'] ?? '');
-    $pw2 = (string) ($_POST['confirm'] ?? '');
-    if (strlen($pw) < 10) {
+    $authType = (string) ($_POST['credential_type'] ?? 'password');
+    $credential = (string) ($_POST['credential'] ?? '');
+    $confirmation = (string) ($_POST['confirm'] ?? '');
+    if (!in_array($authType, ['password', 'code'], true)) {
+        $error = 'Choose a valid unlock method.';
+        $authType = 'password';
+    } elseif ($authType === 'code' && !preg_match('/\A[0-9]{6}\z/', $credential)) {
+        $error = 'The code must contain exactly 6 digits.';
+    } elseif ($authType === 'password' && strlen($credential) < 10) {
         $error = 'Use at least 10 characters.';
-    } elseif (!hash_equals($pw, $pw2)) {
-        $error = 'The two passwords don\'t match.';
+    } elseif (!hash_equals($credential, $confirmation)) {
+        $error = 'The two values don\'t match.';
     } else {
-        meta_set('master_hash', password_hash($pw, PASSWORD_DEFAULT));
+        meta_set('master_hash', password_hash($credential, PASSWORD_DEFAULT));
+        meta_set('master_type', $authType);
         login_session();
         redirect();
     }
@@ -38,7 +46,7 @@ if ($isPost && $action === 'login' && $hasMaster) {
     $left = max(0, (int) meta_get('locked_until') - time());
     if ($left > 0) {
         $error = 'Too many attempts. Try again in ' . (int) ceil($left / 60) . ' min.';
-    } elseif (password_verify((string) ($_POST['password'] ?? ''), (string) meta_get('master_hash'))) {
+    } elseif (password_verify((string) ($_POST['credential'] ?? $_POST['password'] ?? ''), (string) meta_get('master_hash'))) {
         meta_set('failed', '0');
         login_session();
         redirect();
@@ -59,6 +67,10 @@ if ($isPost && $action === 'login' && $hasMaster) {
 // ======================================================================
 if (!is_authed()) {
     $setupMode = !$hasMaster;
+    $selectedType = $setupMode
+        ? ((($_POST['credential_type'] ?? 'password') === 'code') ? 'code' : 'password')
+        : $authType;
+    $codeMode = $selectedType === 'code';
     ?>
 <!doctype html>
 <html lang="en">
@@ -70,10 +82,10 @@ if (!is_authed()) {
   <main class="w-full max-w-sm">
     <h1 class="text-3xl font-bold tracking-tight">Vault</h1>
     <p class="mt-1 text-slate2">
-      <?= $setupMode ? 'Choose a master password. You will need it every time you unlock the vault.' : 'Enter your master password to unlock.' ?>
+      <?= $setupMode ? 'Choose how you want to unlock the vault.' : 'Enter your unlock credential.' ?>
     </p>
 
-    <form method="post" class="mt-6 space-y-4 bg-white border border-line rounded-lg p-6">
+    <form method="post" id="authForm" data-auth-type="<?= h($selectedType) ?>" class="mt-6 space-y-4 bg-white border border-line rounded-lg p-6">
       <input type="hidden" name="csrf" value="<?= h(csrf()) ?>">
       <input type="hidden" name="action" value="<?= $setupMode ? 'setup' : 'login' ?>">
 
@@ -81,20 +93,31 @@ if (!is_authed()) {
         <p role="alert" class="text-sm text-brick bg-brick/10 rounded px-3 py-2"><?= h($error) ?></p>
       <?php endif; ?>
 
+      <?php if ($setupMode): ?>
+        <label class="block">
+          <span class="text-sm font-medium">Unlock method</span>
+          <select id="authType" name="credential_type"
+                  class="mt-1 w-full rounded border border-line px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pine">
+            <option value="password" <?= $selectedType === 'password' ? 'selected' : '' ?>>Master password</option>
+            <option value="code" <?= $selectedType === 'code' ? 'selected' : '' ?>>6-digit code</option>
+          </select>
+        </label>
+      <?php endif; ?>
+
       <label class="block">
-        <span class="text-sm font-medium">Master password</span>
-        <input type="password" name="password" required autofocus
+        <span id="credentialLabel" class="text-sm font-medium"><?= $codeMode ? '6-digit code' : 'Master password' ?></span>
+        <input id="credential" type="password" name="credential" required autofocus
                autocomplete="<?= $setupMode ? 'new-password' : 'current-password' ?>"
                class="mt-1 w-full rounded border border-line px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pine">
       </label>
 
       <?php if ($setupMode): ?>
         <label class="block">
-          <span class="text-sm font-medium">Repeat master password</span>
-          <input type="password" name="confirm" required autocomplete="new-password"
+          <span id="confirmLabel" class="text-sm font-medium"><?= $codeMode ? 'Repeat 6-digit code' : 'Repeat master password' ?></span>
+          <input id="confirm" type="password" name="confirm" required autocomplete="new-password"
                  class="mt-1 w-full rounded border border-line px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pine">
         </label>
-        <p class="text-sm text-slate2">At least 10 characters. A few random words works well.</p>
+        <p id="credentialHelp" class="text-sm text-slate2"><?= $codeMode ? 'Exactly 6 digits. A code is quicker but easier to guess than a strong password.' : 'At least 10 characters. A few random words works well.' ?></p>
       <?php endif; ?>
 
       <button class="w-full rounded bg-pine hover:bg-pine-dark text-white font-semibold py-2.5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-pine">
@@ -102,6 +125,40 @@ if (!is_authed()) {
       </button>
     </form>
   </main>
+  <script>
+    const typeSelect = document.querySelector('#authType');
+    const authForm = document.querySelector('#authForm');
+    const credential = document.querySelector('#credential');
+    const confirmCredential = document.querySelector('#confirm');
+    function updateCredentialFields() {
+      const codeMode = (typeSelect ? typeSelect.value : authForm.dataset.authType) === 'code';
+      document.querySelector('#credentialLabel').textContent = codeMode ? '6-digit code' : 'Master password';
+      credential.inputMode = codeMode ? 'numeric' : 'text';
+      if (codeMode) {
+        credential.maxLength = 6;
+        credential.pattern = '[0-9]{6}';
+      } else {
+        credential.removeAttribute('maxlength');
+        credential.removeAttribute('pattern');
+      }
+      if (confirmCredential) {
+        document.querySelector('#confirmLabel').textContent = codeMode ? 'Repeat 6-digit code' : 'Repeat master password';
+        confirmCredential.inputMode = codeMode ? 'numeric' : 'text';
+        if (codeMode) {
+          confirmCredential.maxLength = 6;
+          confirmCredential.pattern = '[0-9]{6}';
+        } else {
+          confirmCredential.removeAttribute('maxlength');
+          confirmCredential.removeAttribute('pattern');
+        }
+        document.querySelector('#credentialHelp').textContent = codeMode
+          ? 'Exactly 6 digits. A code is quicker but easier to guess than a strong password.'
+          : 'At least 10 characters. A few random words works well.';
+      }
+    }
+    if (typeSelect) typeSelect.addEventListener('change', updateCredentialFields);
+    updateCredentialFields();
+  </script>
 </body>
 </html>
 <?php

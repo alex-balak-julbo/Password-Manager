@@ -14,7 +14,8 @@ Easiest, with PHP's built-in server (recommended; keeps everything outside `publ
     cd password-manager
     php -S localhost:8000 -t public
 
-Open http://localhost:8000 and choose a master password.
+Open http://localhost:8000 and choose a master password or a six-digit unlock
+code.
 
 With Apache (XAMPP/WAMP): put the folder in `www/` or `htdocs/` and open
 http://localhost/password-manager/public/ . The included `.htaccess` files block
@@ -27,7 +28,9 @@ http://localhost/password-manager/.env : you should get 403.
 - Name, website, username, password and notes are each encrypted with
   libsodium `secretbox` (XSalsa20-Poly1305) before going into SQLite.
   Opening `storage/vault.sqlite` shows only ciphertext.
-- The master password is stored only as a bcrypt/Argon hash (`password_hash`).
+- The master password or six-digit code is stored only as a bcrypt/Argon hash
+  (`password_hash`). A six-digit code is easier to guess than a strong
+  password; the same five-attempt lockout applies to both.
 - Login is limited to 5 wrong attempts, then a 5 minute lockout.
 - The session auto-locks after `IDLE_TIMEOUT` seconds idle (default 60, set in `.env`). Press Ctrl+L to lock instantly. Forms are CSRF-protected.
 - Passwords are never in the page HTML; they are fetched only when you click
