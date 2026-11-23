@@ -2,12 +2,18 @@
 declare(strict_types=1);
 
 require __DIR__ . '/../src/bootstrap.php';
-
 set_exception_handler(function (Throwable $e): void {
     http_response_code(500);
     echo '<!doctype html><meta charset="utf-8"><title>Error</title>'
-       . '<body style="font-family:system-ui;max-width:40rem;margin:4rem auto;padding:0 1rem">'
-       . '<h1>Something went wrong</h1><p>' . h($e->getMessage()) . '</p></body>';
+       . '<body style="font-family:system-ui;max-width:60rem;margin:2rem auto;padding:0 1rem">'
+       . '<h1>Something went wrong</h1>'
+       . '<p><strong>Type:</strong> ' . h(get_class($e)) . '</p>'
+       . '<p><strong>Message:</strong> ' . h($e->getMessage()) . '</p>'
+       . '<p><strong>Location:</strong> ' . h($e->getFile()) . ' on line <strong>' . $e->getLine() . '</strong></p>'
+       . '<h2>Stack Trace</h2>'
+       . '<pre style="background:#f4f4f4;padding:1rem;overflow-x:auto;border-radius:4px">'
+       . h($e->getTraceAsString())
+       . '</pre></body>';
 });
 
 $error     = null;
