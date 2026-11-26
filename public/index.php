@@ -50,9 +50,12 @@ if ($isPost && $action === 'setup' && !$hasMaster) {
 if ($isPost && $action === 'login' && $hasMaster) {
     check_csrf();
     $left = max(0, (int) meta_get('locked_until') - time());
+    $credential = (string) ($_POST['credential'] ?? $_POST['password'] ?? '');
     if ($left > 0) {
         $error = 'Too many attempts. Try again in ' . (int) ceil($left / 60) . ' min.';
-    } elseif (password_verify((string) ($_POST['credential'] ?? $_POST['password'] ?? ''), (string) meta_get('master_hash'))) {
+    } elseif ($authType === 'code' && !preg_match('/\A[0-9]{6}\z/', $credential)) {
+        $error = 'Enter exactly 6 digits.';
+    } elseif (password_verify($credential, (string) meta_get('master_hash'))) {
         meta_set('failed', '0');
         login_session();
         redirect();
@@ -64,7 +67,7 @@ if ($isPost && $action === 'login' && $hasMaster) {
             $failed = 0;
         }
         meta_set('failed', (string) $failed);
-        $error = 'Wrong master password.';
+        $error = $authType === 'code' ? 'Wrong 6-digit code.' : 'Wrong master password.';
     }
 }
 
@@ -143,9 +146,11 @@ if (!is_authed()) {
       if (codeMode) {
         credential.maxLength = 6;
         credential.pattern = '[0-9]{6}';
+        credential.autocomplete = 'one-time-code';
       } else {
         credential.removeAttribute('maxlength');
         credential.removeAttribute('pattern');
+        credential.autocomplete = 'current-password';
       }
       if (confirmCredential) {
         document.querySelector('#confirmLabel').textContent = codeMode ? 'Repeat 6-digit code' : 'Repeat master password';
@@ -164,6 +169,18 @@ if (!is_authed()) {
     }
     if (typeSelect) typeSelect.addEventListener('change', updateCredentialFields);
     updateCredentialFields();
+
+    let codeSubmitted = false;
+    credential.addEventListener('input', () => {
+      if (authForm.dataset.authType !== 'code'
+          || authForm.querySelector('[name="action"]').value !== 'login') return;
+      const digits = credential.value.replace(/[^0-9]/g, '').slice(0, 6);
+      if (credential.value !== digits) credential.value = digits;
+      if (digits.length === 6 && !codeSubmitted) {
+        codeSubmitted = true;
+        authForm.requestSubmit();
+      }
+    });
   </script>
 </body>
 </html>
@@ -310,7 +327,7 @@ unset($_SESSION['flash']);
             data-id="<?= $it['id'] ?>"
             data-name="<?= h($it['name']) ?>"
             data-username="<?= h($it['username']) ?>"
-            data-search="<?= h(mb_strtolower($it['name'] . ' ' . $it['url'] . ' ' . $it['username'])) ?>">
+            data-search="<?= h($it['name'] . ' ' . $it['url'] . ' ' . $it['username']) ?>">
           <div class="min-w-0 flex-1">
             <p class="font-semibold truncate"><?= h($it['name']) ?></p>
             <?php if ($it['url'] !== ''): ?>
@@ -443,7 +460,7 @@ search.addEventListener('input', () => {
   const terms = search.value.toLowerCase().split(/\s+/).filter(Boolean);
   let shown = 0;
   $$('.entry').forEach(li => {
-    const ok = terms.every(t => li.dataset.search.includes(t));
+    const ok = terms.every(t => li.dataset.search.toLowerCase().includes(t));
     li.classList.toggle('hidden', !ok);
     if (ok) shown++;
   });
